@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skew-T Sounding Dashboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--fg:#1b1f24;--mute:#667;--line:#d5d9df;--grid:#c3c9d2;--adi:#d9a77a;--t:#d62f2f;--td:#1f8a3b;--acc:#1f5fbf;--hl:#c0189a}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#12151a;--card:#1b2027;--fg:#e8ebef;--mute:#99a;--line:#2f3640;--grid:#3a424d;--adi:#7a5a3c;--t:#ff6b6b;--td:#5ad17a;--acc:#6ea8ff;--hl:#ff7ad9}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,Segoe UI,sans-serif;padding:16px;max-width:1300px;margin:auto}
+h1{font-size:1.3rem;margin:0 0 12px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:16px}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end}
+label{display:flex;flex-direction:column;font-size:.8rem;color:var(--mute);gap:3px}
+input,select,button{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg)}
+button{cursor:pointer;background:var(--acc);color:#fff;border:0}
+button.sec{background:var(--bg);color:var(--fg);border:1px solid var(--line)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:3px 6px 3px 12px;font-size:.85rem}
+.chip b{cursor:pointer;margin-left:6px;color:var(--mute)}
+#msg{color:var(--mute);font-size:.85rem;margin-top:8px;min-height:1.2em}
+#grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+.card h2{font-size:.95rem;margin:0 0 6px}
+svg{width:100%;height:auto;display:block}
+.g{stroke:var(--grid);stroke-width:.6;fill:none}.a{stroke:var(--adi);stroke-width:.6;fill:none;stroke-dasharray:3 3}
+.lb{fill:var(--mute);font-size:9px}.fr{fill:none;stroke:var(--fg);stroke-width:1}
+.bb{stroke:var(--fg);stroke-width:1;fill:none}.bf{fill:var(--fg)}
+.leg{font-size:.85rem;margin:4px 0}.leg span{display:inline-block;margin-right:14px}
+.sw{display:inline-block;width:14px;height:3px;vertical-align:middle;margin-right:5px}
+small{color:var(--mute)}
+.tw{overflow-x:auto;margin-top:10px}
+.idx{width:100%;border-collapse:collapse;font-size:.8rem}
+.idx td,.idx th{padding:3px 6px;border-bottom:1px solid var(--line);text-align:left;font-variant-numeric:tabular-nums;vertical-align:top}
+.idx tr.sec td{background:var(--bg);font-weight:600;color:var(--mute);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+.idx th{font-weight:600}
+.idx tr.hv{cursor:help}.idx tr.hv:hover td{background:var(--bg)}.ho{max-width:300px;margin:6px auto}
+.side{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.side>.ch{flex:0 1 460px;min-width:300px}
+.side>.tw{flex:1 1 420px;margin-top:0}
+@media (min-width:1000px){.side>.ch{position:sticky;top:8px}}
+.side.solo>.ch{flex:1 1 100%;max-width:780px;margin:0 auto;position:static}
+.solo .ho{max-width:380px}
+</style>
+</head>
+<body>
+<h1>Skew-T Sounding Dashboard</h1>
+<div class="panel">
+  <div class="row">
+    <label>Station<input id="st" list="stl" value="KXMR" size="9" autocomplete="off"></label><datalist id="stl"></datalist>
+    <label>Time zone<select id="tz"><option value="auto">Station local</option><option value="UTC">UTC</option></select></label>
+    <label>Add date<input id="d" type="date"></label>
+    <button class="sec" id="add">Add</button>
+    <label>Hours from–to (0–24)<span style="display:flex;gap:4px"><input id="h1" type="number" min="0" max="24" value="0" style="width:64px"><input id="h2" type="number" min="0" max="24" value="24" style="width:64px"></span></label>
+    <label>View<select id="mode"><option value="split">Side by side</option><option value="overlay">Overlay</option></select></label>
+    <label style="flex-direction:row;align-items:center;gap:6px;color:var(--fg)"><input id="ho" type="checkbox">Hodograph</label>
+    <label style="flex-direction:row;align-items:center;gap:6px;color:var(--fg)"><input id="ix" type="checkbox" checked>Indices table</label>
+    <button id="go">Plot soundings</button>
+    <button class="sec" id="copy">Copy share link</button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div id="msg"></div>
+</div>
+<div id="out"></div>
+<p><small>Data: Iowa Environmental Mesonet RAOB archive (NWS radiosondes) for the station you pick (default KXMR, Cape Canaveral). For each date you add, every sounding launched within your chosen hour range, in the selected time zone, is plotted, including non-synoptic launches. Leave the range at 0–24 for all soundings that day. Thermal levels and indices are computed in your browser from the sounding (virtual-temperature parcel method, pseudo-adiabatic ascent), so values can differ somewhat from SHARPpy or SPC output. Hover a table row to see that level or parameter drawn on the skew-T. Red = temperature, green = dewpoint, dashed orange = dry adiabats.</small></p>
+
+<script>
+const $=s=>document.querySelector(s);
+const IEM="https://mesonet.agron.iastate.edu";
+const COLORS=["#d62f2f","#1f5fbf","#e08a00","#8a3ffc","#0f9d8a","#c2185b","#6d6d6d","#2e7d32"];
+let dates=[];
+
+// geometry
+const PW=400,PH=400,L=40,T0=8,PB=1050,PT=100;
+const Y=p=>PH*(Math.log(p)-Math.log(PT))/(Math.log(PB)-Math.log(PT));
+const X=(t,p)=>(t+30)*5+(PH-Y(p));
+
+function renderChips(){
+  $("#chips").innerHTML=dates.map((x,i)=>`<span class="chip">${x}<b data-i="${i}" title="Remove">✕</b></span>`).join("");
+}
+$("#chips").onclick=e=>{const i=e.target.dataset.i;if(i!==undefined){dates.splice(+i,1);renderChips();}};
+$("#add").onclick=()=>{
+  const d=$("#d").value;
+  if(!d)return;
+  if(!dates.includes(d))dates.push(d);
+  dates.sort();renderChips();
+};
+
+const stMap={KXMR:{name:"Cape Canaveral, FL",tz:"America/New_York"}};
+const okTz=z=>{try{new Intl.DateTimeFormat("en",{timeZone:z});return true;}catch(e){return false;}};
+const stReady=(async()=>{try{
+  const r=await fetch(IEM+"/geojson/network/RAOB.geojson");if(!r.ok)return;
+  (await r.json()).features.forEach(x=>{
+    const p=x.properties,id=p.sid||x.id;if(!id)return;const lon=x.geometry.coordinates[0];
+    let tz=p.tzname&&okTz(p.tzname)?p.tzname:null;
+    if(!tz&&p.country==="US")tz=lon>-85?"America/New_York":lon>-102?"America/Chicago":lon>-114?"America/Denver":"America/Los_Angeles";
+    stMap[id]={name:p.sname||"",tz:tz||"UTC"};});
+  stMap.KXMR={name:(stMap.KXMR||{}).name||"Cape Canaveral, FL",tz:"America/New_York"};
+  $("#stl").innerHTML=Object.entries(stMap).map(([id,v])=>`<option value="${id}">${v.name}</option>`).join("");
+}catch(e){}})();
+const fm={};
+function loc(dt,tz){
+  const f=fm[tz]||(fm[tz]=new Intl.DateTimeFormat("en-CA",{timeZone:tz,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false,timeZoneName:"short"}));
+  const p={};f.formatToParts(dt).forEach(x=>p[x.type]=x.value);const hh=+p.hour%24,mm=+p.minute;
+  return{date:`${p.year}-${p.month}-${p.day}`,h:hh+mm/60,s:`${String(hh).padStart(2,"0")}:${p.minute}`,z:p.timeZoneName};}
+
+// All soundings around that day (any launch time); keep those in the chosen hour window
+async function getMorning(ST,tz,day,a,b){
+  const next=new Date(Date.parse(day+"T00:00:00Z")+864e5).toISOString().slice(0,10),prev=new Date(Date.parse(day+"T00:00:00Z")-864e5).toISOString().slice(0,10);
+  const r=await fetch(`${IEM}/cgi-bin/request/raob.py?station=${ST}&sts=${prev}T08:00Z&ets=${next}T14:00Z`);
+  if(!r.ok)throw new Error("request failed ("+r.status+")");
+  const rows=(await r.text()).split(/\r?\n/).filter(l=>l&&l[0]!=="#").map(l=>l.split(","));
+  const hd=rows.shift().map(x=>x.trim().toLowerCase());
+  const ix=re=>hd.findIndex(h=>re.test(h)),iv=ix(/valid/),ip=ix(/^pres/),it=ix(/^tmp/),id=ix(/^dw/),ir=ix(/^drct|^dir/),is=ix(/^spe|^sknt/),ih=ix(/^height|^hght/);
+  if(iv<0||ip<0||it<0)throw new Error("unexpected data format");
+  const n=(w,i)=>{const v=i<0?"":w[i];return v===""||v==null||isNaN(v)?null:+v};
+  const g={};
+  rows.forEach(w=>{(g[w[iv]]=g[w[iv]]||[]).push({pres:n(w,ip),tmpc:n(w,it),dwpc:n(w,id),drct:n(w,ir),sknt:n(w,is),hght:n(w,ih)});});
+  return Object.entries(g).map(([v,pts])=>{
+    const t=new Date(v.replace(" ","T")+(/Z$/i.test(v)?"":"Z"));
+    return{t,l:loc(t,tz),pts:pts.filter(q=>q.pres>=PT&&q.pres<=PB).sort((x,y)=>y.pres-x.pres)};
+  }).filter(o=>o.l.date===day&&o.l.h>=a&&o.l.h<b&&o.pts.some(q=>q.tmpc!=null))
+    .sort((x,y)=>x.t-y.t)
+    .map(o=>({pts:o.pts,label:`${o.l.date} ${o.l.s} ${o.l.z} (${o.t.toISOString().slice(11,16)}Z)`}));
+}
+
+function barb(cx,cy,dir,kt){
+  if(dir==null||kt==null)return"";
+  const a=dir*Math.PI/180,u=[Math.sin(a),-Math.cos(a)],v=[-u[1],u[0]],len=22;
+  let n=Math.round(kt/5)*5,s=`<circle cx="${cx}" cy="${cy}" r="1.5" class="bf"/>`;
+  if(n<5)return s;
+  const pt=k=>[cx+u[0]*k,cy+u[1]*k];
+  const e=pt(len);s+=`<line class="bb" x1="${cx}" y1="${cy}" x2="${e[0]}" y2="${e[1]}"/>`;
+  let pos=len;const fl=Math.floor(n/50);n%=50;
+  for(let i=0;i<fl;i++){const A=pt(pos),B=pt(pos-4),C=[A[0]+v[0]*9,A[1]+v[1]*9];
+    s+=`<polygon class="bf" points="${A} ${C} ${B}"/>`;pos-=5;}
+  for(let i=0;i<Math.floor(n/10);i++){const A=pt(pos);s+=`<line class="bb" x1="${A[0]}" y1="${A[1]}" x2="${A[0]+v[0]*9-u[0]*3}" y2="${A[1]+v[1]*9-u[1]*3}"/>`;pos-=3;}
+  if(n%10>=5){if(pos===len)pos-=3;const A=pt(pos);s+=`<line class="bb" x1="${A[0]}" y1="${A[1]}" x2="${A[0]+v[0]*4.5-u[0]*1.5}" y2="${A[1]+v[1]*4.5-u[1]*1.5}"/>`;}
+  return s;
+}
+
+function skewT(list){ // list: [{pts,color}]
+  const W=L+PW+50,H=PH+T0+22;
+  let s=`<svg viewBox="0 0 ${W} ${H}"><defs><clipPath id="c"><rect width="${PW}" height="${PH}"/></clipPath></defs><g transform="translate(${L},${T0})">`;
+  s+=`<g clip-path="url(#c)">`;
+  for(let t=-120;t<=50;t+=10)s+=`<line class="g" x1="${X(t,PB)}" y1="${PH}" x2="${X(t,PT)}" y2="0"/>`;
+  for(let th=250;th<=500;th+=10){
+    let d="";for(let p=PB;p>=PT;p-=25)d+=`${X(th*Math.pow(p/1000,.2857)-273.15,p).toFixed(1)},${Y(p).toFixed(1)} `;
+    s+=`<polyline class="a" points="${d}"/>`;}
+  s+=`</g>`;
+  for(let p=1000;p>=100;p-=100)s+=`<line class="g" x1="0" x2="${PW}" y1="${Y(p)}" y2="${Y(p)}"/><text class="lb" x="-4" y="${Y(p)+3}" text-anchor="end">${p}</text>`;
+  for(let t=-20;t<=40;t+=10)s+=`<text class="lb" x="${X(t,PB)}" y="${PH+12}" text-anchor="middle">${t}°</text>`;
+  const multi=list.length>1;
+  list.forEach(({pts,color},i)=>{
+    const line=k=>pts.filter(q=>q[k]!=null).map(q=>`${X(q[k],q.pres).toFixed(1)},${Y(q.pres).toFixed(1)}`).join(" ");
+    s+=`<g clip-path="url(#c)"><polyline fill="none" stroke="${multi?color:"var(--t)"}" stroke-width="1.8" points="${line("tmpc")}"/>`;
+    s+=`<polyline fill="none" stroke="${multi?color:"var(--td)"}" stroke-width="1.8" ${multi?'stroke-dasharray="4 3"':""} points="${line("dwpc")}"/></g>`;
+  });
+  s+=`<rect class="fr" width="${PW}" height="${PH}"/><g class="hl" clip-path="url(#c)" style="pointer-events:none"></g>`;
+  const base=list[0].pts; // barbs from first (or only) sounding
+  for(let p=1000;p>=200;p-=50){
+    const q=base.reduce((a,b)=>Math.abs(b.pres-p)<Math.abs(a.pres-p)?b:a,base[0]);
+    if(Math.abs(q.pres-p)<=15)s+=barb(PW+26,Y(p),q.drct,q.sknt);
+  }
+  return s+`</g></svg>`;
+}
+
+/* ---------- thermodynamics & indices ---------- */
+const G=9.81,RD=287.04,CP=1005.7,LV=2.501e6,KAP=0.2854;
+const es=T=>6.112*Math.exp(17.67*T/(T+243.5));
+const mixr=(p,T)=>{const e=es(T);return .622*e/(p-e);};
+const r0=v=>Math.round(v).toLocaleString();
+function li(a,p){ // interpolate [[p,v],...] (descending p) in ln p
+  if(!a.length||p>a[0][0]+.01||p<a[a.length-1][0]-.01)return null;
+  for(let i=0;i<a.length-1;i++){const[p1,v1]=a[i],[p2,v2]=a[i+1];
+    if(p<=p1&&p>=p2)return p1===p2?v1:v1+Math.log(p/p1)/Math.log(p2/p1)*(v2-v1);}
+  return a[a.length-1][1];}
+function dTdp(T,p){const Tk=T+273.15,rs=mixr(p,T);return(RD*Tk+LV*rs)/(CP+LV*LV*rs*.622/(RD*Tk*Tk))/p;}
+function moist(T,pa,pb){const n=Math.ceil(Math.abs(pa-pb)/5),h=(pa-pb)/n;let p=pa;
+  for(let i=0;i<n;i++){const k=dTdp(T,p);T-=dTdp(T-k*h/2,p-h/2)*h;p-=h;}return T;}
+
+function parcel(env,p0,T0,D0,p3){
+  p3=p3||0;
+  const w0=mixr(p0,D0),Tk=T0+273.15,Dk=D0+273.15;
+  const TL=1/(1/(Dk-56)+Math.log(Tk/Dk)/800)+56,pL=p0*Math.pow(TL/Tk,1/KAP);
+  const dry=q=>Tk*Math.pow(q/p0,KAP)-273.15;
+  const dtv=(q,T,wp)=>{const Te=li(env.T,q);if(Te==null)return null;const De=li(env.D,q);
+    const we=De==null?0:mixr(q,Math.min(De,Te));return(T+273.15)*(1+.61*wp)-(Te+273.15)*(1+.61*we);};
+  const o={pL,cape:0,cape3:0,cin:0,lfc:null,el:null,t500:null,tr:[[p0,T0]]};
+  let pp=p0,Tc=T0,pg=p0,dg=dtv(p0,T0,w0),st=0;
+  if(dg==null)return o;
+  for(let q=Math.floor((p0-.001)/5)*5;q>=100;q-=5){
+    let T;
+    if(q>=pL)T=dry(q);else{if(pp>pL){Tc=dry(pL);pp=pL;}T=moist(Tc,pp,q);}
+    Tc=T;pp=q;o.tr.push([q,T]);
+    const d=dtv(q,T,q>=pL?w0:mixr(q,T));if(d==null)break;
+    if(q===500)o.t500=T;
+    const area=RD*(dg+d)/2*Math.log(pg/q),x=pg+(q-pg)*(0-dg)/(d-dg),c3=v=>{if(q>=p3)o.cape3+=v;};
+    if(st===0){
+      if(d>0&&q<=pL){
+        if(dg>0){o.lfc=Math.min(pg,pL);o.cape+=area;c3(area);}
+        else{const a=RD*d/2*Math.log(x/q);o.lfc=x;o.cin+=RD*dg/2*Math.log(pg/x);o.cape+=a;c3(a);}
+        st=1;
+      }else o.cin+=Math.min(area,0);
+    }else if(st===1){
+      if(d>0){o.cape+=area;c3(area);}
+      else{const a=RD*dg/2*Math.log(pg/x);o.el=x;o.cape+=a;if(x>=p3)o.cape3+=a;st=2;}
+    }
+    pg=q;dg=d;
+  }
+  if(st===1)o.el=100;
+  if(o.cape<=0){o.cape=o.cape3=o.cin=0;o.lfc=o.el=null;}
+  return o;
+}
+function mlParcel(env,ps){
+  let th=0,w=0,n=0;
+  for(let q=ps;q>=ps-100;q-=10){const T=li(env.T,q),D=li(env.D,q);if(T==null||D==null)continue;
+    th+=(T+273.15)*Math.pow(1000/q,KAP);w+=mixr(q,D);n++;}
+  if(!n)return null;
+  th/=n;w/=n;const L=Math.log(w*ps/(.622+w)/6.112);
+  return[th*Math.pow(ps/1000,KAP)-273.15,243.5*L/(17.67-L)];
+}
+function cross(a,lvl){ // a: [{p,z,t}] low to high
+  if(!a.length)return null;
+  if(a[0].t<=lvl)return{txt:"At/below surface"};
+  for(let i=0;i<a.length-1;i++){const u=a[i],v=a[i+1];
+    if(u.t>lvl&&v.t<=lvl){const f=(lvl-u.t)/(v.t-u.t),z=u.z+f*(v.z-u.z),p=Math.exp(Math.log(u.p)+f*(Math.log(v.p)-Math.log(u.p)));
+      return{txt:`${r0(z)} m / ${r0(z*3.2808)} ft · ${r0(p)} hPa`,p,zs:r0(z)+" m"};}}
+  return{txt:"Not reached"};
+}
+function windfn(pts,z0){
+  const w=pts.filter(q=>q.hght!=null&&q.drct!=null&&q.sknt!=null).map(q=>{const a=q.drct*Math.PI/180,s=q.sknt*.5144;return[q.hght-z0,-s*Math.sin(a),-s*Math.cos(a)];}).sort((a,b)=>a[0]-b[0]);
+  if(w.length<3)return null;
+  return z=>{
+    if(z>w[w.length-1][0])return null;
+    if(z<=w[0][0])return[w[0][1],w[0][2]];
+    for(let i=0;i<w.length-1;i++)if(z<=w[i+1][0]){const f=(z-w[i][0])/((w[i+1][0]-w[i][0])||1);
+      return[w[i][1]+f*(w[i+1][1]-w[i][1]),w[i][2]+f*(w[i+1][2]-w[i][2])];}
+    return null;};
+}
+function thetaE(T,D,p){const Tk=T+273.15,Dk=D+273.15,r=mixr(p,D)*1000,e=es(D);
+  const TL=1/(1/(Dk-56)+Math.log(Tk/Dk)/800)+56;
+  return Tk*Math.pow(1000/(p-e),KAP)*Math.pow(Tk/TL,.28e-3*r)*Math.exp((3.376/TL-.00254)*r*(1+.81e-3*r));}
+function dcape(env,ps){
+  let best=null,bq=null;
+  for(let q=ps;q>=ps-400;q-=10){const T=li(env.T,q),D=li(env.D,q);if(T==null||D==null)continue;
+    const th=thetaE(T,Math.min(D,T),q);if(best==null||th<best){best=th;bq=q;}}
+  if(bq==null)return null;
+  const T=li(env.T,bq),D=Math.min(li(env.D,bq),T),Tk=T+273.15,Dk=D+273.15;
+  const TL=1/(1/(Dk-56)+Math.log(Tk/Dk)/800)+56,pL=bq*Math.pow(TL/Tk,1/KAP);
+  let Tp=bq<=pL?T:moist(TL-273.15,pL,bq),pg=bq,sum=0;const tr=[[bq,Tp]];
+  const dtv=(q,Tq)=>{const Te=li(env.T,q),De=li(env.D,q);if(Te==null)return null;
+    return(Te+273.15)*(1+.61*(De==null?0:mixr(q,Math.min(De,Te))))-(Tq+273.15)*(1+.61*mixr(q,Tq));};
+  let dg=dtv(bq,Tp);if(dg==null)return null;
+  for(let q=Math.ceil((bq+.001)/5)*5;;q+=5){
+    const qq=Math.min(q,ps);Tp=moist(Tp,pg,qq);const d=dtv(qq,Tp);if(d==null)break;
+    sum+=RD*(dg+d)/2*Math.log(qq/pg);tr.push([qq,Tp]);pg=qq;dg=d;if(qq>=ps)break;}
+  return{dcape:Math.max(0,sum),pTop:bq,tr};
+}
+function pz(env,h){const a=env.Z;
+  for(let i=0;i<a.length-1;i++)if(a[i][1]<=h&&a[i+1][1]>=h){const f=(h-a[i][1])/((a[i+1][1]-a[i][1])||1);
+    return Math.exp(Math.log(a[i][0])+f*(Math.log(a[i+1][0])-Math.log(a[i][0])));}
+  return null;}
+function pHL(env,o,pcut){ // parcel highlight in (T,p) space
+  const seg=(hi,lo)=>{const s=o.tr.filter(([q])=>q<=hi&&q>=lo);return s.map(([q,T])=>[T,q]).concat(s.slice().reverse().map(([q])=>[li(env.T,q),q]));};
+  const h={tr:o.tr.map(([q,T])=>[T,q])};
+  if(o.lfc){h.cape=seg(o.lfc,Math.max(o.el||100,pcut||0));h.cin=seg(o.tr[0][0],o.lfc);}
+  return h;}
+
+function analyze(pts){
+  const R=[],add=(s,l,v,h)=>R.push([s,l,v==null||Number.isNaN(v)?"—":v,v==null?null:h]);
+  const A=k=>pts.filter(q=>q[k]!=null).map(q=>[q.pres,q[k]]);
+  const env={T:A("tmpc"),D:A("dwpc"),Z:A("hght")};
+  const sfc=pts.find(q=>q.tmpc!=null&&q.dwpc!=null);
+  const z0=env.Z.length?env.Z[0][1]:0;
+  const agl=p=>{const z=li(env.Z,p);return z==null?null:z-z0;};
+  const m=v=>v==null?null:r0(v)+" m";
+
+  const TS="Thermal levels (first crossing above surface)";
+  const ta=pts.filter(q=>q.tmpc!=null&&q.hght!=null).map(q=>({p:q.pres,z:q.hght,t:q.tmpc}));
+  [[0,"0 °C (freezing level)"],[-5,"−5 °C"],[-10,"−10 °C"],[-20,"−20 °C"],[-30,"−30 °C"],[-40,"−40 °C"]].forEach(([l,n])=>{
+    const c=cross(ta,l);add(TS,n,c&&c.txt,c&&c.p&&{p:c.p,pts:[[l,c.p]],txt:`${l} °C · ${c.zs}`});});
+  const wb=pts.filter(q=>q.tmpc!=null&&q.dwpc!=null&&q.hght!=null).map(q=>{
+    const RH=Math.min(100,100*es(q.dwpc)/es(q.tmpc)),T=q.tmpc;
+    return{p:q.pres,z:q.hght,t:T*Math.atan(.151977*Math.sqrt(RH+8.313659))+Math.atan(T+RH)-Math.atan(RH-1.676331)+.00391838*Math.pow(RH,1.5)*Math.atan(.023101*RH)-4.686035};});
+  const cw=cross(wb,0);add(TS,"Wet-bulb 0 °C",cw&&cw.txt,cw&&cw.p&&{p:cw.p,txt:"Wet-bulb 0 °C · "+cw.zs});
+  if(!sfc)return R;
+
+  const IS="Parcel instability",ps=sfc.pres,p3=pz(env,z0+3000);
+  const sb=parcel(env,ps,sfc.tmpc,sfc.dwpc,p3);
+  const mlp=mlParcel(env,ps),ml=mlp?parcel(env,ps,mlp[0],mlp[1],p3):null;
+  let mu=sb;
+  for(let q=ps-10;q>=ps-300;q-=10){const T=li(env.T,q),D=li(env.D,q);if(T==null||D==null)continue;
+    const o=parcel(env,q,T,Math.min(D,T),p3);if(o.cape>mu.cape)mu=o;}
+  const hs=pHL(env,sb),hm=ml&&pHL(env,ml),hu=pHL(env,mu);
+  const J=v=>v==null?null:r0(v)+" J/kg";
+  const L=(o,n)=>o&&{p:o.pL,txt:n+" LCL"},F=(o,n)=>o&&o.lfc?{p:o.lfc,txt:n+" LFC"}:null,E=(o,n)=>o&&o.el?{p:o.el,txt:n+" EL"}:null;
+  const fl=o=>o&&o.lfc?m(agl(o.lfc)):"None",fe=o=>o&&o.el?`${m(agl(o.el))} · ${r0(o.el)} hPa`:"None";
+  add(IS,"SBCAPE",J(sb.cape),hs);add(IS,"SBCIN",J(sb.cin),hs);
+  add(IS,"SB LCL (AGL)",m(agl(sb.pL)),L(sb,"SB"));add(IS,"SB LFC (AGL)",fl(sb),F(sb,"SB")||{p:sb.pL,txt:"No LFC"});add(IS,"SB EL",fe(sb),E(sb,"SB"));
+  add(IS,"MLCAPE (lowest 100 hPa)",ml&&J(ml.cape),hm);add(IS,"MLCIN",ml&&J(ml.cin),hm);
+  add(IS,"ML LCL (AGL)",ml&&m(agl(ml.pL)),L(ml,"ML"));add(IS,"ML LFC (AGL)",ml&&fl(ml),F(ml,"ML")||(ml&&{p:ml.pL,txt:"No LFC"}));
+  add(IS,"MUCAPE (lowest 300 hPa)",J(mu.cape),hu);add(IS,"MUCIN",J(mu.cin),hu);
+  add(IS,"0–3 km SBCAPE",p3==null?null:J(sb.cape3),{...hs,ly:[ps,p3],txt:"0–3 km"});
+  add(IS,"0–3 km MLCAPE",ml&&p3!=null?J(ml.cape3):null,{...hm,ly:[ps,p3],txt:"0–3 km"});
+  const dc=dcape(env,ps);
+  add(IS,"DCAPE",dc&&J(dc.dcape),dc&&{tr:dc.tr.map(([q,T])=>[T,q]),p:dc.pTop,txt:"Downdraft origin (min θe)"});
+  const T5=li(env.T,500);
+  add(IS,"Lifted index (ML → 500 hPa)",ml&&ml.t500!=null&&T5!=null?(T5-ml.t500).toFixed(1)+" °C":null,ml&&{...hm,pts:[[T5,500],[ml.t500,500]],p:500,txt:"500 hPa"});
+
+  const MS="Moisture & lapse rates";
+  let pw=0;const wAt=q=>{const D=li(env.D,q),T=li(env.T,q);return D==null||T==null?0:mixr(q,Math.min(D,T));};
+  for(let q=ps;q>300;){const q2=Math.max(q-5,300);pw+=(wAt(q)+wAt(q2))/2*(q-q2)*100/G;q=q2;}
+  add(MS,"Precipitable water (sfc–300 hPa)",`${(pw/25.4).toFixed(2)} in (${pw.toFixed(0)} mm)`,{ly:[ps,300],txt:"Sfc–300 hPa"});
+  const T8=li(env.T,850),T7=li(env.T,700),D8=li(env.D,850),D7=li(env.D,700);
+  add(MS,"K-index",[T8,T5,D8,T7,D7].every(v=>v!=null)?((T8-T5)+D8-(T7-D7)).toFixed(0):null,{pts:[[T8,850],[D8,850],[T7,700],[D7,700],[T5,500]],txt:"850 / 700 / 500 hPa"});
+  add(MS,"Total totals",[T8,T5,D8].every(v=>v!=null)?((T8-T5)+(D8-T5)).toFixed(0):null,{pts:[[T8,850],[D8,850],[T5,500]],txt:"850 / 500 hPa"});
+  const z7=li(env.Z,700),z5=li(env.Z,500);
+  add(MS,"700–500 hPa lapse rate",[T7,T5,z7,z5].every(v=>v!=null)?((T7-T5)/((z5-z7)/1000)).toFixed(1)+" °C/km":null,{ly:[700,500],pts:[[T7,700],[T5,500]],txt:"700–500 hPa"});
+
+  const KS="Wind & storm-relative";
+  const U=windfn(pts,z0),ly=h=>{const p=pz(env,z0+h);return p&&{ly:[ps,p],txt:`0–${h/1000} km`};};
+  let s1=null,s6=null,c=null,srh=()=>null;
+  if(U){
+    const V0=U(0),shr=zt=>{const v=U(zt);return v?Math.hypot(v[0]-V0[0],v[1]-V0[1])*1.944:null;};
+    s1=shr(1000);s6=shr(6000);
+    let mu_=0,mv=0,n=0;
+    for(let z=0;z<=6000;z+=250){const v=U(z);if(!v){n=0;break;}mu_+=v[0];mv+=v[1];n++;}
+    if(n&&s6){const v6=U(6000),sx=v6[0]-V0[0],sy=v6[1]-V0[1],mg=Math.hypot(sx,sy);
+      if(mg>0)c=[mu_/n+7.5*sy/mg,mv/n-7.5*sx/mg];}
+    srh=zt=>{if(!c)return null;let t=0;
+      for(let z=0;z<zt;z+=100){const a=U(z),b=U(z+100);if(!a||!b)return null;t+=(b[0]-c[0])*(a[1]-c[1])-(a[0]-c[0])*(b[1]-c[1]);}return t;};
+    const hp=[];for(let z=0;z<=10000;z+=250){const v=U(z);if(!v)break;hp.push([z,v[0]*1.944,v[1]*1.944]);}
+    R.hodo={pts:hp,rm:c&&[c[0]*1.944,c[1]*1.944]};
+  }
+  const kt=v=>v==null?null:v.toFixed(0)+" kt";
+  add(KS,"0–1 km bulk shear",kt(s1),ly(1000));add(KS,"0–6 km bulk shear",kt(s6),ly(6000));
+  add(KS,"Bunkers right-mover motion",c?`${r0((Math.atan2(-c[0],-c[1])*180/Math.PI+360)%360)}° / ${(Math.hypot(...c)*1.944).toFixed(0)} kt`:null);
+  const h1=srh(1000),h3=srh(3000);
+  add(KS,"0–1 km SRH",h1==null?null:r0(h1)+" m²/s²",ly(1000));add(KS,"0–3 km SRH",h3==null?null:r0(h3)+" m²/s²",ly(3000));
+  let stp=null;
+  if(ml&&h1!=null&&s6!=null){
+    const Lc=agl(ml.pL),lt=Lc==null?null:Math.min(1,Math.max(0,(2000-Lc)/1000)),
+      sh=s6/1.944<12.5?0:Math.min(1.5,s6/1.944/20),ct=Math.min(1,Math.max(0,(200+ml.cin)/150));
+    if(lt!=null)stp=Math.max(0,(ml.cape/1500)*lt*(h1/150)*sh*ct);
+  }
+  add(KS,"STP (fixed layer)",stp==null?null:stp.toFixed(1));
+  let scp=null;
+  if(h3!=null&&s6!=null){const sh=s6/1.944;scp=Math.max(0,(mu.cape/1000)*(h3/50)*(sh<10?0:Math.min(1,sh/20))*(mu.cin>-40?1:-40/mu.cin));}
+  add(KS,"SCP (fixed layer)",scp==null?null:scp.toFixed(1));
+  return R;
+}
+function safe(pts){try{return analyze(pts);}catch(e){console.error(e);return[];}}
+function drawHL(h,c){
+  const P=a=>a.map(([T,p])=>`${X(T,p).toFixed(1)},${Y(p).toFixed(1)}`).join(" ");
+  let s="";
+  if(h.ly&&h.ly[1]!=null)s+=`<rect x="0" y="${Y(h.ly[1])}" width="${PW}" height="${Y(h.ly[0])-Y(h.ly[1])}" style="fill:${c};opacity:.15"/>`;
+  if(h.cin)s+=`<polygon points="${P(h.cin)}" style="fill:#3b6fe0;opacity:.4"/>`;
+  if(h.cape)s+=`<polygon points="${P(h.cape)}" style="fill:${c};opacity:.4"/>`;
+  if(h.tr)s+=`<polyline points="${P(h.tr)}" style="stroke:${c};fill:none;stroke-width:2;stroke-dasharray:5 3"/>`;
+  if(h.p)s+=`<line x1="0" x2="${PW}" y1="${Y(h.p)}" y2="${Y(h.p)}" style="stroke:${c};stroke-width:1.6"/>`;
+  (h.pts||[]).forEach(([T,p])=>{if(T!=null)s+=`<circle cx="${X(T,p)}" cy="${Y(p)}" r="4" style="fill:${c};stroke:#fff;stroke-width:1"/>`;});
+  if(h.txt){const y=h.p?Y(h.p)-4:h.ly&&h.ly[1]!=null?Y(h.ly[1])+11:12;
+    s+=`<text x="${PW-4}" y="${y}" text-anchor="end" style="fill:${c};stroke:var(--card);stroke-width:3px;paint-order:stroke;font-size:10px;font-weight:600">${h.txt}</text>`;}
+  return s;
+}
+const HC=["#d62f2f","#e08a00","#1f8a3b","#1f5fbf"];
+function hodo(list){
+  const L=list.filter(o=>o.rows.hodo&&o.rows.hodo.pts.length>1);if(!L.length)return"";
+  let mx=30;L.forEach(o=>o.rows.hodo.pts.forEach(([z,u,v])=>mx=Math.max(mx,Math.hypot(u,v))));
+  const st=mx>60?20:10,rm=Math.ceil(mx/st)*st,S=240,c=S/2,R=c-16,sx=u=>(c+u*R/rm).toFixed(1),sy=v=>(c-v*R/rm).toFixed(1),multi=L.length>1;
+  let s=`<svg class="ho" viewBox="0 0 ${S} ${S}">`;
+  for(let r=st;r<=rm;r+=st)s+=`<circle class="g" cx="${c}" cy="${c}" r="${r*R/rm}"/><text class="lb" x="${c+2}" y="${c-r*R/rm-2}">${r}</text>`;
+  s+=`<line class="g" x1="0" x2="${S}" y1="${c}" y2="${c}"/><line class="g" x1="${c}" x2="${c}" y1="0" y2="${S}"/>`;
+  L.forEach(o=>{const h=o.rows.hodo;
+    for(let i=0;i<h.pts.length-1;i++){const a=h.pts[i],b=h.pts[i+1],col=multi?o.color:HC[a[0]<1000?0:a[0]<3000?1:a[0]<6000?2:3];
+      s+=`<line x1="${sx(a[1])}" y1="${sy(a[2])}" x2="${sx(b[1])}" y2="${sy(b[2])}" style="stroke:${col};stroke-width:2.5;stroke-linecap:round"/>`;}
+    h.pts.forEach(([z,u,v])=>{if(z%1000===0&&z>0&&z<=9000)s+=`<circle cx="${sx(u)}" cy="${sy(v)}" r="2.5" style="fill:${multi?o.color:"var(--fg)"}"/>`+(multi?"":`<text class="lb" x="${+sx(u)+4}" y="${+sy(v)-3}">${z/1000}</text>`);});
+    if(h.rm)s+=`<circle cx="${sx(h.rm[0])}" cy="${sy(h.rm[1])}" r="4" style="fill:none;stroke:${multi?o.color:"var(--fg)"};stroke-width:1.5"/>`;
+  });
+  const key=multi?"":HC.map((k,i)=>`<span><i class="sw" style="background:${k}"></i>${["0–1","1–3","3–6","6+"][i]} km</span>`).join("");
+  return s+`</svg><div class="leg" style="text-align:center">Hodograph (kt) ${key} ○ Bunkers RM</div>`;
+}
+function table(list){
+  const tpl=list.reduce((a,b)=>b.rows.length>a.rows.length?b:a);
+  let h=`<div class="tw"><table class="idx">`;
+  if(list.length>1)h+=`<tr><th></th>${list.map(o=>`<th><i class="sw" style="background:${o.color}"></i>${o.label}</th>`).join("")}</tr>`;
+  let sec="";
+  tpl.rows.forEach((r,i)=>{
+    if(r[0]!==sec){sec=r[0];h+=`<tr class="sec"><td colspan="${list.length+1}">${sec}</td></tr>`;}
+    h+=`<tr${r[3]?` class="hv" data-i="${i}"`:""}><td>${r[1]}</td>${list.map(o=>`<td>${o.rows[i]?o.rows[i][2]:"—"}</td>`).join("")}</tr>`;
+  });
+  return h+`</table></div>`;
+}
+
+let last=null,HL={},cid=0,curSt="KXMR";
+function draw(){
+  if(!last||!last.length)return;
+  const ok=last,out=$("#out"),ho=$("#ho").checked,ix=$("#ix").checked;HL={};
+  const card=(list,t)=>{const id="k"+(cid++);HL[id]=list;return`<div class="panel card" id="${id}">${t}</div>`;};
+  if($("#mode").value==="overlay")
+    out.innerHTML=card(ok,`<div class="leg">${ok.map(o=>`<span><i class="sw" style="background:${o.color}"></i>${o.label}</span>`).join("")}<small>(solid = temperature, dashed = dewpoint)</small></div><div class="side${ix?"":" solo"}"><div class="ch">${skewT(ok)}${ho?hodo(ok):""}</div>${ix?table(ok):""}</div>`);
+  else
+    out.innerHTML=`<div id="grid">${ok.map(o=>card([o],`<h2>${curSt} · ${o.label}</h2>${skewT([o])}${ho?hodo([o]):""}${ix?table([o]):""}`)).join("")}</div>`;
+  history.replaceState(null,"","?"+new URLSearchParams({d:dates.join(","),m:$("#mode").value,h1:$("#h1").value,h2:$("#h2").value,ho:ho?1:0,ix:ix?1:0,st:curSt,tz:$("#tz").value}));
+}
+async function run(){
+  const msg=$("#msg"),a=+$("#h1").value,b=+$("#h2").value;
+  await stReady;
+  const st=($("#st").value.trim()||"KXMR").toUpperCase(),tz=$("#tz").value==="UTC"?"UTC":(stMap[st]||{}).tz||"UTC";curSt=st;
+  if(!dates.length){msg.textContent="Add at least one date first.";return;}
+  $("#out").innerHTML="";last=null;msg.textContent=`Fetching ${st} soundings…`;
+  const res=await Promise.all(dates.map(d=>getMorning(st,tz,d,a,b).catch(e=>({err:e.message}))));
+  const ok=[],miss=[];let ci=0,err=null;
+  res.forEach((r,i)=>{
+    if(r.err){err=r.err;miss.push(dates[i]);return;}
+    if(!r.length)miss.push(dates[i]);
+    r.forEach(x=>ok.push({pts:x.pts,label:x.label,color:COLORS[ci++%COLORS.length],rows:safe(x.pts)}));
+  });
+  msg.textContent=`${st} (${tz}): ${ok.length} sounding(s) found.`+(miss.length?` None for: ${miss.join(", ")}.`:"")+(err?` Error: ${err}`:"");
+  last=ok;draw();
+}
+const clearHL=()=>document.querySelectorAll(".hl").forEach(g=>g.innerHTML="");
+$("#out").addEventListener("mouseover",e=>{
+  const c=e.target.closest(".card"),tr=e.target.closest("tr.hv");
+  clearHL();if(!c||!tr)return;
+  const L=HL[c.id],i=+tr.dataset.i,g=c.querySelector(".hl");
+  L.forEach(o=>{const h=o.rows[i]&&o.rows[i][3];if(h)g.insertAdjacentHTML("beforeend",drawHL(h,L.length>1?o.color:"var(--hl)"));});
+});
+$("#out").addEventListener("mouseleave",clearHL);
+$("#mode").onchange=$("#ho").onchange=$("#ix").onchange=draw;
+$("#go").onclick=run;
+$("#copy").onclick=()=>{navigator.clipboard.writeText(location.href).then(()=>$("#msg").textContent="Link copied. Run Plot first to include your latest inputs.");};
+
+// restore from share link
+(function(){
+  const q=new URLSearchParams(location.search);
+  if(q.get("m"))$("#mode").value=q.get("m");
+  if(q.get("st"))$("#st").value=q.get("st");
+  if(q.get("tz"))$("#tz").value=q.get("tz");
+  if(q.get("ho")==="1")$("#ho").checked=true;
+  if(q.get("ix")==="0")$("#ix").checked=false;
+  if(q.get("h1"))$("#h1").value=q.get("h1");
+  if(q.get("h2"))$("#h2").value=q.get("h2");
+  if(q.get("d")){dates=q.get("d").split(",").map(x=>x.split("T")[0]);renderChips();run();}
+})();
+</script>
+</body>
+</html>
